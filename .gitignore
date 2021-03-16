@@ -1,0 +1,15 @@
+# Object files
+*.o
+
+# Executables
+spectrogram
+
+# Sound files
+sound/**
+
+# TODO: Maybe commit this later
+# ImGui ini file
+imgui.ini
+
+# Editor files
+\#*
