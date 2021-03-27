@@ -4,6 +4,7 @@
 #include "imgui/backends/imgui_impl_sdl.h"
 #include "imgui_impl_opengl3.h"
 #include "imgui/imgui.h"
+#include "fft.hpp"
 
 #include <stdio.h>
 #include <SDL.h>
@@ -36,11 +37,31 @@ typedef struct {
 
 } flac_client_data_t;
 
+typedef struct {
+    int channels;
+    // TODO: Generalize for multiple channels
+    int padded_nsamples;
+    double *in_real;
+    double *in_imag;
+    double *out_real;
+    double *out_imag;
+} spectrogram_data_t;
+
 #define MAX_INT16 32767
 
+/* Function signatures */
 
 Mix_Music *load_sound_from_file(const char *filename);
 SDL_AudioDeviceID sdl_custom_audio_init(const char *device);
 void restart_song(void);
 void rewind_song(float percent);
+
+/* Inline functions */
+inline int upper_pow2(int target)
+{
+    int n = 2;
+    while (n < target) n*=2;
+    return n;
+}
+
 #endif

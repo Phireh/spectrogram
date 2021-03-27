@@ -1,7 +1,7 @@
 CC=g++
 CFLAGS=-DIMGUI_IMPL_OPENGL_LOADER_GLEW -Wall -Wextra -Werror -O2 -Wno-unused-parameter 
 LIBS=`pkg-config --libs glew` `sdl2-config --libs` -lSDL2_mixer -lFLAC
-INCLUDES=`pkg-config --cflags glew` `sdl2-config --cflags` -I./imgui -I./imgui/backends
+INCLUDES=`pkg-config --cflags glew` `sdl2-config --cflags` -I./imgui -I./imgui/backends -I./fft
 IMGUI_SOURCES=$(wildcard imgui/*.cpp)
 IMGUI_HEADERS=$(wildcard imgui/*.h)
 IMGUI_OBJ=$(addsuffix .o,$(basename $(notdir $(IMGUI_SOURCES))))

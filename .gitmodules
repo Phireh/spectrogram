@@ -2,3 +2,6 @@
 	path = imgui
 	url = https://github.com/ocornut/imgui
         ignore = untracked
+[submodule "fft"]
+	path = fft
+	url = https://github.com/wareya/fft

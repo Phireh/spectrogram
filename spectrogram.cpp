@@ -11,36 +11,41 @@ flac_client_data_t flac_client_data;
 FLAC__StreamDecoder *flac_stream_decoder;
 float volume = 1.0f;
 
+spectrogram_data_t spectrogram_data;
+
 // TODO: turn state into enums or bitmasks
 bool playing = false;
 bool song_ended = false;
 
 /* OpenGL globals */
 // TODO: Check if we need to save the rbo
-unsigned int fbo_arr[MAX_CHANNELS];
-unsigned int texture_arr[MAX_CHANNELS];
-unsigned int rbo_arr[MAX_CHANNELS];
+unsigned int waveform_fbo_arr[MAX_CHANNELS];
+unsigned int waveform_texture_arr[MAX_CHANNELS];
+unsigned int waveform_rbo_arr[MAX_CHANNELS];
 
-unsigned int spectrogram_program;
+unsigned int waveform_program;
 
 // TODO: Don't be a disgusting human being
-const char *vertex_shader_source =
+const char *waveform_vertex_shader_source =
     "#version 150\n" \
     "in vec2 position;\n" \
     "void main() {\n" \
     "gl_Position = vec4(position, 0.0, 1.0);\n" \
     "}";
 
-const char *fragment_shader_source =
+const char *waveform_fragment_shader_source =
     "#version 150\n" \
     "out vec4 out_color;\n" \
     "void main() {\n" \
     "out_color = vec4(1.0, 1.0, 1.0, 1.0);\n" \
     "}";
 
+// TODO: Make this unique
+const char *spectrogram_vertex_shader_source = waveform_vertex_shader_source;
+const char *spectrogram_fragment_shader_source = waveform_fragment_shader_source;
 
-unsigned int spectrogram_width = 400;
-unsigned int spectrogram_height = 100;
+unsigned int waveform_width = 400;
+unsigned int waveform_height = 100;
 
 char infoLog[512];
 
@@ -61,7 +66,7 @@ unsigned int build_shader(const char *source, int type)
     return shader;
 }
 
-unsigned int make_spectrogram_program()
+unsigned int make_opengl_program(const char *vertex_shader_source, const char *fragment_shader_source)
 {
     unsigned int vertex_shader = build_shader(vertex_shader_source, GL_VERTEX_SHADER);
     unsigned int fragment_shader = build_shader(fragment_shader_source, GL_FRAGMENT_SHADER);
@@ -87,58 +92,69 @@ unsigned int make_spectrogram_program()
     return program;
 }
 
-int init_spectrogram_texture(int channel)
+unsigned int make_waveform_program()
+{
+    // TODO: Maybe refactor this
+    return make_opengl_program(waveform_vertex_shader_source, waveform_fragment_shader_source);
+}
+
+int init_opengl_texture(unsigned int *fbo, unsigned int *rbo, unsigned int *texture, unsigned int width, unsigned int height)
 {
     // TODO: Remove magic numbers
-    if (!fbo_arr[channel])
+    if (!fbo)
     {
-        glGenFramebuffers(1, &fbo_arr[channel]);
+        glGenFramebuffers(1, fbo);
     }
     
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo_arr[channel]);
+    glBindFramebuffer(GL_FRAMEBUFFER, *fbo);
 
     // Complete the framebuffer
 
     /* Create texture */
-    glGenTextures(1, &texture_arr[channel]);
-    glBindTexture(GL_TEXTURE_2D, texture_arr[channel]);
+    glGenTextures(1, texture);
+    glBindTexture(GL_TEXTURE_2D, *texture);
   
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, spectrogram_width, spectrogram_height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
-
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+    
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture_arr[channel], 0);  
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, *texture, 0);  
 
     /* Attach texture to framebuffer */
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture_arr[channel], 0);  
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, *texture, 0);  
 
 
     /* Create depth+stencil rbo attachment for framebuffer so OpenGL can do depth testing */
-    glGenRenderbuffers(1, &rbo_arr[channel]);
-    glBindRenderbuffer(GL_RENDERBUFFER, rbo_arr[channel]); 
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, spectrogram_width, spectrogram_height);  
+    glGenRenderbuffers(1, rbo);
+    glBindRenderbuffer(GL_RENDERBUFFER, *rbo); 
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, width, height);  
     glBindRenderbuffer(GL_RENDERBUFFER, 0);
 
     /* Attach rbo to framebuffer */    
-    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rbo_arr[channel]);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, *rbo);
 
     // Return to normal regardless of success
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-    return (glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);    
+    return (glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);   
 }
 
-void draw_spectrogram_to_texture(int channel)
+int init_waveform_texture(int channel)
 {
-    glViewport(0, 0, spectrogram_width, spectrogram_height);
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo_arr[channel]);
+    return init_opengl_texture(&waveform_fbo_arr[channel], &waveform_rbo_arr[channel], &waveform_texture_arr[channel], waveform_width, waveform_height);
+}
+
+void draw_waveform_to_texture(int channel)
+{
+    glViewport(0, 0, waveform_width, waveform_height);
+    glBindFramebuffer(GL_FRAMEBUFFER, waveform_fbo_arr[channel]);
     // Rendering
     // TODO: check if we need to fuck with the viewport
     // TODO: For now we just clear the texture to a hideous color to make sure it works
 
 //    glEnable(GL_PROGRAM_POINT_SIZE); // this is for using it in the shader
-    glUseProgram(spectrogram_program);
+    glUseProgram(waveform_program);
     glClearColor(1.0f, 0.6f, 1.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -191,6 +207,51 @@ void draw_spectrogram_to_texture(int channel)
 
     // Return framebuffer to normal
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+int init_spectrogram_data(spectrogram_data_t *spectrogram_data, flac_client_data_t *flac_client_data)
+{
+    int nsamples = flac_client_data->total_samples;
+    if (nsamples)
+    {
+        // TODO: Stereo audio
+        spectrogram_data->channels = flac_client_data->channels;
+        // FFT radix 2 algorithm needs an input of size 2^N
+        int padded_nsamples = upper_pow2(nsamples);
+        spectrogram_data->padded_nsamples = padded_nsamples;
+        spectrogram_data->in_real = (double*) calloc(padded_nsamples, sizeof(double));
+        spectrogram_data->in_imag = (double*) calloc(padded_nsamples, sizeof(double));
+        spectrogram_data->out_real = (double*) calloc(padded_nsamples, sizeof(double));
+        spectrogram_data->out_imag = (double*) calloc(padded_nsamples, sizeof(double));
+
+        if (spectrogram_data->in_real && spectrogram_data->in_imag && spectrogram_data->out_real && spectrogram_data->out_imag)
+        {
+            // Copy sample data to in_real
+            for (int i = 0; i < nsamples; ++i)
+            {
+                // TODO: Make this work for non-16b audio
+                FLAC__int16 sample = *((FLAC__int16*)&flac_client_data->buffers[LEFT_CHANNEL][i*2]);
+                spectrogram_data->in_real[i] = sample;
+            }
+            return padded_nsamples;
+        }
+        else
+        {
+            printf("Error trying to allocate memory for FFT arrays\n");
+        }
+    }
+    else
+    {
+        printf("Trying to init FFT data without audio sample data\n");
+    }
+    return 0;
+}
+
+int fft_rect(spectrogram_data_t *spectrogram_data)
+{
+    // TODO: Queue this as a threaded job to avoid hiccups
+    fft(spectrogram_data->in_real, spectrogram_data->in_imag, spectrogram_data->padded_nsamples, spectrogram_data->out_real, spectrogram_data->out_imag);    
+    return 1;
 }
 
 void restart_song()
@@ -509,13 +570,13 @@ int main()
 
             // Init OpenGL texture to draw graphs to textures
             // TODO: Query for channel #
-            if (!init_spectrogram_texture(LEFT_CHANNEL) || !init_spectrogram_texture(RIGHT_CHANNEL))
+            if (!init_waveform_texture(LEFT_CHANNEL) || !init_waveform_texture(RIGHT_CHANNEL))
             {
                 // TODO: Error handling
             }
             else
             {
-                spectrogram_program = make_spectrogram_program();
+                waveform_program = make_waveform_program();
                 playing = false;
                 bool done = false;
                 bool sdl_mixer_initialized = false;
@@ -545,8 +606,8 @@ int main()
                     static bool texture_ready = false;
                     if (sdl_custom_audio_initialized && !texture_ready)
                     {
-                        draw_spectrogram_to_texture(LEFT_CHANNEL);
-                        draw_spectrogram_to_texture(RIGHT_CHANNEL);
+                        draw_waveform_to_texture(LEFT_CHANNEL);
+                        draw_waveform_to_texture(RIGHT_CHANNEL);
                         texture_ready = true;
                     }
 
@@ -722,11 +783,23 @@ int main()
                         }
 
                     }
-                    ImGui::Image((ImTextureID)((intptr_t)texture_arr[LEFT_CHANNEL]), ImVec2(spectrogram_width, spectrogram_height));
-                    ImGui::Image((ImTextureID)((intptr_t)texture_arr[RIGHT_CHANNEL]), ImVec2(spectrogram_width, spectrogram_height));
+                    ImGui::Image((ImTextureID)((intptr_t)waveform_texture_arr[LEFT_CHANNEL]), ImVec2(waveform_width, waveform_height));
+                    ImGui::Image((ImTextureID)((intptr_t)waveform_texture_arr[RIGHT_CHANNEL]), ImVec2(waveform_width, waveform_height));
+
+                    if (mixer == SDL_CUSTOM_MIXER && sdl_custom_audio_initialized)
+                    {
+                        if (ImGui::Button("Make spectrogram"))
+                        {
+                            if (spectrogram_data.padded_nsamples || init_spectrogram_data(&spectrogram_data, &flac_client_data))
+                            {
+                                printf("Nice!\n");
+                                fft_rect(&spectrogram_data);
+                            }
+                        }
+                    }
                     
                     // Rendering
-
+                    
 
                 
                     ImGui::Render();
