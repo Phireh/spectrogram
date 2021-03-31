@@ -25,6 +25,13 @@ unsigned int waveform_rbo_arr[MAX_CHANNELS];
 
 unsigned int waveform_program;
 
+unsigned int spectrogram_fbo_arr[MAX_CHANNELS];
+unsigned int spectrogram_texture_arr[MAX_CHANNELS];
+unsigned int spectrogram_rbo_arr[MAX_CHANNELS];
+
+unsigned int spectrogram_program;
+
+
 // TODO: Don't be a disgusting human being
 const char *waveform_vertex_shader_source =
     "#version 150\n" \
@@ -43,6 +50,9 @@ const char *waveform_fragment_shader_source =
 // TODO: Make this unique
 const char *spectrogram_vertex_shader_source = waveform_vertex_shader_source;
 const char *spectrogram_fragment_shader_source = waveform_fragment_shader_source;
+
+unsigned int spectrogram_width = 400;
+unsigned int spectrogram_height = 100;
 
 unsigned int waveform_width = 400;
 unsigned int waveform_height = 100;
@@ -98,6 +108,11 @@ unsigned int make_waveform_program()
     return make_opengl_program(waveform_vertex_shader_source, waveform_fragment_shader_source);
 }
 
+unsigned int make_spectrogram_program()
+{
+    return make_opengl_program(spectrogram_vertex_shader_source, spectrogram_fragment_shader_source);
+}
+
 int init_opengl_texture(unsigned int *fbo, unsigned int *rbo, unsigned int *texture, unsigned int width, unsigned int height)
 {
     
@@ -142,6 +157,11 @@ int init_waveform_texture(int channel)
     return init_opengl_texture(&waveform_fbo_arr[channel], &waveform_rbo_arr[channel], &waveform_texture_arr[channel], waveform_width, waveform_height);
 }
 
+int init_spectrogram_texture(int channel)
+{
+    return init_opengl_texture(&spectrogram_fbo_arr[channel], &spectrogram_rbo_arr[channel], &spectrogram_texture_arr[channel], spectrogram_width, spectrogram_height);
+}
+
 void draw_waveform_to_texture(int channel)
 {
     glViewport(0, 0, waveform_width, waveform_height);
@@ -177,8 +197,9 @@ void draw_waveform_to_texture(int channel)
 
 
             FLAC__int16 sample = *((FLAC__int16*)(&flac_client_data.buffers[channel][byte_offset]));
-            
-            float y_coord = (float)-sample/MAX_INT16; 
+
+            // TODO: Figure out why the Y coord is upside down
+            float y_coord = -(float)sample/MAX_INT16;
 
             points[i*2] = x_coord;
             points[(i*2)+1] = y_coord;
@@ -205,6 +226,78 @@ void draw_waveform_to_texture(int channel)
     // Return framebuffer to normal
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
+
+void draw_spectrogram_to_texture(spectrogram_data_t *spectrogram_data, unsigned int channel)
+{
+    glViewport(0, 0, spectrogram_width, spectrogram_height);
+    glBindFramebuffer(GL_FRAMEBUFFER, spectrogram_fbo_arr[channel]);
+
+    glUseProgram(spectrogram_program);
+    glClearColor(1.0f, 0.2f, 0.6f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    
+    if (spectrogram_data->out_real)
+    {
+
+        
+        // TODO: Make sure we are correctly converting FFT output to amplitudes
+        /* NOTE: Our FFT came from real-valued data. Therefore the 2nd half
+           of the resulting values have no useful information for drawing */
+        int nsamples = spectrogram_data->padded_nsamples/2;
+
+        // TODO: Figure out how to do multiple channels better
+        static float *vertex_arr = NULL;
+        if (!vertex_arr)
+        {
+            vertex_arr = (float*) malloc(nsamples*sizeof(float)*2);
+        }
+        static double *sample_amplitudes = NULL;
+        if (!sample_amplitudes)
+        {
+            sample_amplitudes = (double*) malloc (nsamples*sizeof(double));
+        }
+
+        // TODO: Find a better way to calculate the Y coord
+        double max_amplitude = 0;
+        for (int i = 0; i < nsamples; ++i)
+        {
+            double fft_output_real_sample = spectrogram_data->out_real[i];
+            double fft_output_imag_sample = spectrogram_data->out_imag[i];
+            double sample_amplitude = sqrt(fft_output_real_sample+fft_output_imag_sample);
+            sample_amplitudes[i] = sample_amplitude;
+            if (sample_amplitude > max_amplitude)
+                max_amplitude = sample_amplitude;
+        }
+        
+        for (int i = 0; i < nsamples; ++i)
+        {
+            double sample_amplitude = sample_amplitudes[i];
+            // TODO: Figure out why the Y coord is upside down
+            float y_coord = ((-((float)((sample_amplitude)/max_amplitude)))*2.0f + 1.0f);
+            float x_coord = ((2.0f/(nsamples)) * i) - 1.0f;
+
+            vertex_arr[i*2] = x_coord;
+            vertex_arr[(i*2)+1] = y_coord;
+        }
+        unsigned int vao;
+        glGenVertexArrays(1, &vao);
+        glBindVertexArray(vao);
+
+        unsigned int vbo;
+        glGenBuffers(1, &vbo);
+        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+        glBufferData(GL_ARRAY_BUFFER, nsamples*sizeof(float)*2, vertex_arr, GL_STATIC_DRAW);
+
+        // Each position attrib is a vec2
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, (void*)0);
+        glEnableVertexAttribArray(0);       
+
+        glDrawArrays(GL_POINTS, 0, nsamples*2);    
+    }
+    // Return framebuffer to normal
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
 
 int init_spectrogram_data(spectrogram_data_t *spectrogram_data, flac_client_data_t *flac_client_data)
 {
@@ -241,7 +334,7 @@ int init_spectrogram_data(spectrogram_data_t *spectrogram_data, flac_client_data
     {
         printf("Trying to init FFT data without audio sample data\n");
     }
-    return 0;
+    return 1;
 }
 
 int fft_rect(spectrogram_data_t *spectrogram_data)
@@ -785,13 +878,32 @@ int main()
 
                     if (mixer == SDL_CUSTOM_MIXER && sdl_custom_audio_initialized)
                     {
+                        static bool showing_spectrogram = false;
+                        
                         if (ImGui::Button("Make spectrogram"))
                         {
-                            if (spectrogram_data.padded_nsamples || init_spectrogram_data(&spectrogram_data, &flac_client_data))
+                            // TODO: Right audio channel spectrogram
+                            if (init_spectrogram_data(&spectrogram_data, &flac_client_data) &&
+                                spectrogram_data.padded_nsamples &&
+                                init_spectrogram_texture(LEFT_CHANNEL))
                             {
                                 printf("Nice!\n");
                                 fft_rect(&spectrogram_data);
+                                spectrogram_program = make_spectrogram_program();
+                                draw_spectrogram_to_texture(&spectrogram_data, LEFT_CHANNEL);
+                                printf("Spectrogram program = %d\n", spectrogram_program);
+                                
+                                showing_spectrogram = true;
                             }
+                            else
+                            {
+                                // TODO: Error handling
+                            }
+                        }
+
+                        if (showing_spectrogram)
+                        {
+                            ImGui::Image((ImTextureID)((intptr_t)spectrogram_texture_arr[LEFT_CHANNEL]), ImVec2(spectrogram_width, spectrogram_height));
                         }
                     }
                     
