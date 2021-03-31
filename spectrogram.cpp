@@ -227,6 +227,7 @@ void draw_waveform_to_texture(int channel)
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
+// TODO: Figure out why this shows points at (0,0)
 void draw_spectrogram_to_texture(spectrogram_data_t *spectrogram_data, unsigned int channel)
 {
     glViewport(0, 0, spectrogram_width, spectrogram_height);
@@ -268,14 +269,22 @@ void draw_spectrogram_to_texture(spectrogram_data_t *spectrogram_data, unsigned 
             if (sample_amplitude > max_amplitude)
                 max_amplitude = sample_amplitude;
         }
-        
+        float epsilon = 0.0001f;
         for (int i = 0; i < nsamples; ++i)
         {
             double sample_amplitude = sample_amplitudes[i];
+            float y_coord;
+            if (sample_amplitude > epsilon)
+            {
             // TODO: Figure out why the Y coord is upside down
-            float y_coord = ((-((float)((sample_amplitude)/max_amplitude)))*2.0f + 1.0f);
+                y_coord = ((-((float)((sample_amplitude)/max_amplitude)))*2.0f + 1.0f);
+            }
+            else
+            {
+                y_coord = 999.0f; // aka don't show it
+            }
             float x_coord = ((2.0f/(nsamples)) * i) - 1.0f;
-
+            
             vertex_arr[i*2] = x_coord;
             vertex_arr[(i*2)+1] = y_coord;
         }
@@ -891,7 +900,6 @@ int main()
                                 fft_rect(&spectrogram_data);
                                 spectrogram_program = make_spectrogram_program();
                                 draw_spectrogram_to_texture(&spectrogram_data, LEFT_CHANNEL);
-                                printf("Spectrogram program = %d\n", spectrogram_program);
                                 
                                 showing_spectrogram = true;
                             }
