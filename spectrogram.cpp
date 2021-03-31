@@ -100,11 +100,8 @@ unsigned int make_waveform_program()
 
 int init_opengl_texture(unsigned int *fbo, unsigned int *rbo, unsigned int *texture, unsigned int width, unsigned int height)
 {
-    // TODO: Remove magic numbers
-    if (!fbo)
-    {
-        glGenFramebuffers(1, fbo);
-    }
+    
+    glGenFramebuffers(1, fbo);
     
     glBindFramebuffer(GL_FRAMEBUFFER, *fbo);
 
