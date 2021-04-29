@@ -13,3 +13,7 @@ imgui.ini
 
 # Editor files
 \#*
+
+# Tag files
+tags
+TAGS

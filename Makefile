@@ -20,8 +20,9 @@ imgui_impl_sdl.o:imgui/backends/imgui_impl_sdl.cpp
 imgui_impl_opengl3.o:imgui/backends/imgui_impl_opengl3.cpp
 	$(CC) $(CFLAGS) $(INCLUDES) $(LIBS) -c -o $@ $<
 
-dependencies:
-	$(CC) $(CFLAGS) $(LIBS) $(INCLUDES) -MM spectrogram.cpp
+tags:
+	@$(CC) $(CFLAGS) $(LIBS) $(INCLUDES) -M spectrogram.cpp | awk 'NR==1 { for (i=2; i<NF;++i) print $$i } NR>1 { for(i=1;i<NF;++i) print $$i }' | etags -L -
+
 
 clean:
 	rm $(IMGUI_OBJ) $(IMGUI_BACKEND_OBJ) spectrogram
